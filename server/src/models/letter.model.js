@@ -156,3 +156,4 @@ letterSchema.pre("validate", function validateProtection() {
 });
 
 module.exports = mongoose.model("Letter", letterSchema);
+
