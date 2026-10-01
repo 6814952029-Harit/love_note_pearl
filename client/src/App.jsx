@@ -74,6 +74,8 @@ export default function App() {
     setHint(letter.protection?.passwordHint || "");
     const textBlock = letter.content?.blocks?.find((block) => block.type === "text");
     const savedStickers = letter.content?.blocks?.filter((block) => block.type === "sticker" && block.value).map((block) => block.value) || [];
+    const savedImages = letter.content?.blocks?.filter((block) => block.type === "image" && block.imageUrl).map((block) => ({ id: block._id || crypto.randomUUID(), url: block.imageUrl, name: "รูปภาพในจดหมาย" })) || [];
+    setImages(savedImages);
     setStickers(savedStickers);
     if (textBlock) {
       setMessage(textBlock.text || "");
@@ -100,9 +102,22 @@ export default function App() {
   }, [publicSlug]);
 
   function uploadImage(event) {
-    const files = [...event.target.files];
-    const next = files.slice(0, 3 - images.length).map((file) => ({ id: crypto.randomUUID(), url: URL.createObjectURL(file), name: file.name }));
-    setImages((current) => [...current, ...next]);
+    const files = [...event.target.files].slice(0, 3 - images.length);
+    Promise.all(files.map((file) => new Promise((resolve, reject) => {
+      const source = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        const scale = Math.min(1, 1000 / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(source);
+        resolve({ id: crypto.randomUUID(), url: canvas.toDataURL("image/jpeg", 0.72), name: file.name });
+      };
+      image.onerror = () => { URL.revokeObjectURL(source); reject(new Error("Image read failed")); };
+      image.src = source;
+    }))).then((next) => setImages((current) => [...current, ...next])).catch(() => setSaveError("อ่านไฟล์รูปภาพไม่สำเร็จ"));
     event.target.value = "";
   }
 
@@ -139,7 +154,7 @@ export default function App() {
     setUnlockError("");
   }
 
-  async function publishLetter() {
+  async function publishLetter(createNewShare = false) {
     setSaveError("");
     setSaving(true);
     try {
@@ -150,10 +165,12 @@ export default function App() {
           title, recipientName: recipient, senderName: sender,
           content: { blocks: [
             { type: "text", text: message, style: { fontFamily: font, fontSize, color: textColor, textAlign, fontWeight, fontStyle } },
+            ...images.map((image, index) => ({ type: "image", imageUrl: image.url, zIndex: index + 1 })),
             ...stickers.map((value, index) => ({ type: "sticker", value, zIndex: index + 1 })),
           ] },
           appearance: { letterColor, backgroundColor, borderColor, backgroundPattern },
           protection: { enabled: passwordEnabled, password: passwordEnabled ? password : undefined, passwordHint: hint },
+          createNewShare,
           share: { accessMode: shareMode, qr: { enabled: shareMode !== "link", style: { pattern: qrStyle, foregroundColor: qrForegroundColor, backgroundColor: qrBackgroundColor, cornerStyle: qrStyle === "dots" ? "dot" : qrStyle === "rounded" ? "rounded" : "square" } } },
         }),
       });
@@ -252,7 +269,7 @@ export default function App() {
       </div>
 
       {saveError && <p className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">{saveError}</p>}
-      {shareOpen && <ShareModal close={() => setShareOpen(false)} shareMode={shareMode} setShareMode={setShareMode} qrStyle={qrStyle} setQrStyle={setQrStyle} qrForegroundColor={qrForegroundColor} setQrForegroundColor={setQrForegroundColor} qrBackgroundColor={qrBackgroundColor} setQrBackgroundColor={setQrBackgroundColor} shareUrl={shareUrl} copyLink={copyLink} copied={copied} openRecipient={() => { setShareOpen(false); setMode("recipient"); }} />}
+      {shareOpen && <ShareModal close={() => setShareOpen(false)} shareMode={shareMode} setShareMode={setShareMode} qrStyle={qrStyle} setQrStyle={setQrStyle} qrForegroundColor={qrForegroundColor} setQrForegroundColor={setQrForegroundColor} qrBackgroundColor={qrBackgroundColor} setQrBackgroundColor={setQrBackgroundColor} shareUrl={shareUrl} copyLink={copyLink} copied={copied} createNewShare={() => publishLetter(true)} saving={saving} openRecipient={() => { setShareOpen(false); setMode("recipient"); }} />}
     </main>
   );
 }
@@ -278,12 +295,49 @@ function LetterPreview({ paperStyle, title, message, recipient, sender, fontSize
   </article>;
 }
 
-function ShareModal({ close, shareMode, setShareMode, qrStyle, setQrStyle, qrForegroundColor, setQrForegroundColor, qrBackgroundColor, setQrBackgroundColor, shareUrl, copyLink, copied, openRecipient }) {
+function ShareModal({ close, shareMode, setShareMode, qrStyle, setQrStyle, qrForegroundColor, setQrForegroundColor, qrBackgroundColor, setQrBackgroundColor, shareUrl, copyLink, copied, createNewShare, saving, openRecipient }) {
+  const [qrCopied, setQrCopied] = useState(false);
   const showQr = shareMode !== "link";
   const showLink = shareMode !== "qr";
+  async function renderQrPng() {
+    const svg = document.querySelector("#letter-share-qr svg");
+    if (!svg) throw new Error("QR not found");
+    const svgUrl = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml;charset=utf-8" }));
+    try {
+      const image = new Image();
+      image.src = svgUrl;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 512;
+      canvas.getContext("2d").drawImage(image, 0, 0, 512, 512);
+      const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!png) throw new Error("QR conversion failed");
+      return png;
+    } finally { URL.revokeObjectURL(svgUrl); }
+  }
+  async function copyQr() {
+    try {
+      const png = await renderQrPng();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      setQrCopied(true);
+      setTimeout(() => setQrCopied(false), 1800);
+    } catch { downloadQr(); }
+  }
+  async function downloadQr() {
+    try {
+      const url = URL.createObjectURL(await renderQrPng());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "letter-qr.png";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { /* QR is not mounted. */ }
+  }
   return <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-[1.75rem] bg-white p-6 shadow-2xl sm:p-8"><div className="flex items-start justify-between"><div><p className="text-xs font-bold tracking-[.14em] text-[#a64b49]">พร้อมส่งแล้ว</p><h2 className="mt-1 font-display text-3xl font-semibold">ส่งจดหมายของคุณ</h2></div><button onClick={close} className="grid h-9 w-9 place-items-center rounded-full bg-stone-100 text-lg hover:bg-stone-200">×</button></div>
     <div className="mt-6 flex gap-2"><Pill active={shareMode === "both"} onClick={() => setShareMode("both")}>ทั้งคู่</Pill><Pill active={shareMode === "link"} onClick={() => setShareMode("link")}>ลิงก์</Pill><Pill active={shareMode === "qr"} onClick={() => setShareMode("qr")}>QR code</Pill></div>
-    {showQr && <div className="mt-6 rounded-2xl p-5 text-center" style={{ backgroundColor: qrBackgroundColor }}><QRCodeSVG value={shareUrl} size={164} level="H" bgColor={qrBackgroundColor} fgColor={qrForegroundColor} marginSize={2} /><div className="mt-4 flex justify-center gap-2"><Pill active={qrStyle === "square"} onClick={() => setQrStyle("square")}>Square</Pill><Pill active={qrStyle === "rounded"} onClick={() => setQrStyle("rounded")}>Rounded</Pill><Pill active={qrStyle === "dots"} onClick={() => setQrStyle("dots")}>Dots</Pill></div><div className="mt-4 grid grid-cols-2 gap-3 text-left"><ColorControl label="สี QR" value={qrForegroundColor} onChange={setQrForegroundColor} /><ColorControl label="สีพื้น QR" value={qrBackgroundColor} onChange={setQrBackgroundColor} /></div><p className="mt-3 text-xs text-stone-500">สแกนเพื่อเปิดจดหมาย</p></div>}
+    {showQr && <div className="mt-6 rounded-2xl p-5 text-center" style={{ backgroundColor: qrBackgroundColor }}><div id="letter-share-qr"><QRCodeSVG value={shareUrl} size={164} level="H" bgColor={qrBackgroundColor} fgColor={qrForegroundColor} marginSize={2} /></div><button onClick={copyQr} className="mt-3 rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{qrCopied ? "คัดลอก QR แล้ว" : "คัดลอก QR"}</button><div className="mt-4 flex justify-center gap-2"><Pill active={qrStyle === "square"} onClick={() => setQrStyle("square")}>Square</Pill><Pill active={qrStyle === "rounded"} onClick={() => setQrStyle("rounded")}>Rounded</Pill><Pill active={qrStyle === "dots"} onClick={() => setQrStyle("dots")}>Dots</Pill></div><div className="mt-4 grid grid-cols-2 gap-3 text-left"><ColorControl label="สี QR" value={qrForegroundColor} onChange={setQrForegroundColor} /><ColorControl label="สีพื้น QR" value={qrBackgroundColor} onChange={setQrBackgroundColor} /></div><p className="mt-3 text-xs text-stone-500">สแกนเพื่อเปิดจดหมาย</p></div>}
+    {showQr && <button onClick={downloadQr} className="mt-3 w-full rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700">Download QR</button>}
+    <button disabled={saving} onClick={createNewShare} className="mt-3 w-full rounded-xl bg-[#a64b49] py-3 text-sm font-bold text-white disabled:opacity-60">{saving ? "Creating new share..." : "Create new share"}</button>
     {showLink && <div className="mt-5"><Label>ลิงก์สำหรับส่งให้ผู้รับ</Label><div className="flex gap-2"><input readOnly value={shareUrl} className="field min-w-0" /><button onClick={copyLink} className="shrink-0 rounded-xl bg-stone-900 px-4 text-sm font-bold text-white">{copied ? "คัดลอกแล้ว" : "คัดลอก"}</button></div></div>}
     <button onClick={openRecipient} className="mt-6 w-full rounded-xl border border-stone-200 py-3 text-sm font-bold text-stone-700 hover:bg-stone-50">ดูหน้าที่ผู้รับจะเห็น →</button>
   </div></div>;

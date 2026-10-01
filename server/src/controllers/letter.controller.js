@@ -66,6 +66,7 @@ const updateLetter = async (req, res, next) => {
         for (const field of editableFields) {
             if (req.body[field] !== undefined) letter[field] = req.body[field];
         }
+        if (req.body.createNewShare) letter.share.slug = createSlug();
 
         if (req.body.protection !== undefined) {
             const protection = req.body.protection;
