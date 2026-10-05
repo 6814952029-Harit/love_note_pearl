@@ -8,11 +8,18 @@ const { notFound, errorHandler } = require("./middlewares/error.middleware");
 const app = express();
 
 // 1. Global middleware
-const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
-    : true;
+const allowedOrigins = process.env.CORS_ORIGIN;
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins === "*" || (allowedOrigins && allowedOrigins.includes(origin))) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
 
-app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
