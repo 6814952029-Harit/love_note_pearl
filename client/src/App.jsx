@@ -3,7 +3,9 @@ import { QRCodeSVG } from "qrcode.react";
 
 const STICKERS = ["💌", "🌷", "🦋", "✨", "🧸", "🌙", "🎀", "☁️"];
 const FONT_OPTIONS = ["Sarabun", "Playfair Display", "DM Sans", "Georgia"];
-const API_URL = window.location.hostname === "localhost"
+const API_URL = window.location.hostname === "localhost" 
+  ? "http://localhost:5000/api" 
+  : "https://love-note-pearl-1.onrender.com/api";
 
 function Icon({ children, className = "" }) {
   return <span aria-hidden="true" className={`inline-flex h-5 w-5 items-center justify-center ${className}`}>{children}</span>;
