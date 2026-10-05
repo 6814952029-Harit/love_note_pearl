@@ -55,7 +55,7 @@ const blockSchema = new mongoose.Schema(
                 message: "A sticker block must have a value.",
             },
         },
-        imageUrl: { type: String, trim: true, maxlength: 1500000, default: null },
+        imageUrl: { type: String, trim: true, default: null },
         position: {
             x: { type: Number, default: 0 },
             y: { type: Number, default: 0 },
