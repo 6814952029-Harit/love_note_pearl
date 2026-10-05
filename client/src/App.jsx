@@ -566,7 +566,7 @@ function AuthScreen({ onAuthenticated }) {
       if (!response.ok) throw new Error(data.message || "ไม่สามารถดำเนินการได้");
       onAuthenticated(data);
     } catch (requestError) {
-      setError(requestError.message === "Failed to fetch" ? "เชื่อมต่อ server ไม่ได้ กรุณาเปิด server ที่ port 5000" : requestError.message);
+      setError(requestError.message === "Failed to fetch" ? "ไม่สามารถเชื่อมต่อกับ Server ได้ กรุณาลองใหม่อีกครั้ง" : requestError.message);
     } finally {
       setLoading(false);
     }
