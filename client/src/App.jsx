@@ -559,8 +559,8 @@ function AuthScreen({ onAuthenticated }) {
     try {
       const response = await fetch(`${API_URL}/auth/${isRegister ? "register" : "login"}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isRegister ? { displayName, email, password, adminCode: adminCode || undefined } : { email, password }),
+         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isRegister ? { displayName, email, password, adminCode: adminCode || undefined } : { email, password })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "ไม่สามารถดำเนินการได้");
